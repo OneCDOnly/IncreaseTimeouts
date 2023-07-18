@@ -26,7 +26,8 @@ Init()
     {
 
     readonly QPKG_NAME=IncreaseTimeouts
-    readonly SHUTDOWN_PATHFILE=/etc/init.d/shutdown_check.sh
+	readonly TARGET_UTILITY_PATHFILE=/usr/local/sbin/qpkg_service
+	readonly BACKUP_UTILITY_PATHFILE=/usr/local/sbin/qpkg_service.orig
 
     /sbin/setcfg "$QPKG_NAME" Status complete -f /etc/config/qpkg.conf
 
@@ -36,17 +37,68 @@ Init()
     readonly QPKG_PATH=$(/sbin/getcfg $QPKG_NAME Install_Path -f /etc/config/qpkg.conf)
     readonly SERVICE_STATUS_PATHFILE=/var/run/$QPKG_NAME.last.operation
 
-    while read -r package_ref comment; do
-        [[ -n $package_ref && $package_ref != \#* ]] && PKGS_ALPHA_ORDERED+=("$package_ref")
-    done < "$alpha_pathfile_actual"
-
-    while read -r package_ref comment; do
-        [[ -n $package_ref && $package_ref != \#* ]] && PKGS_OMEGA_ORDERED+=("$package_ref")
-    done < "$omega_pathfile_actual"
-
-    PKGS_OMEGA_ORDERED+=("$QPKG_NAME")
-
     }
+
+QPKGs.Timeouts:Increase()
+	{
+
+	# boot-persistent:
+	#	QTS 4.3.3.1624 20221124 (TS-220) as /usr is symlink to /mnt/ext/usr
+
+	# not boot-persistent:
+	#	QTS 5.1.0.2444 20230629 (TS-230)
+	#	QTS 5.1.0.2444 20230629 (TS-231P2)
+
+	# not boot-persistent (but timeout specifier is unsupported anyway):
+	#	QTS 4.2.6.0468 20221028 (TS-559 Pro+)
+
+
+	if ! OS.IsSupportQpkgTimeout; then
+		ShowAsAbort "QPKG timeouts are unsupported in this $(GetQnapOS) version"
+		return 1
+	fi
+
+	if [[ ! -e $TARGET_UTILITY_PATHFILE ]]; then
+		ShowAsError 'original utility not found'
+		return 1
+	fi
+
+	if [[ -e $BACKUP_UTILITY_PATHFILE ]]; then
+		ShowAsInfo 'default QPKG timeouts have already been increased'
+	else
+		mv "$TARGET_UTILITY_PATHFILE" "$BACKUP_UTILITY_PATHFILE"
+
+		/bin/cat > "$TARGET_UTILITY_PATHFILE" << EOF
+#!/usr/bin/env bash
+#* this script was added by sherpa: https://git.io/sherpa
+#* increase the default timeout for qpkg_service to $((QPKG_EXTENDED_TIMEOUT_SECONDS/60)) minutes
+#* subsequent specification of -t values will override this value
+$BACKUP_UTILITY_PATHFILE -t $QPKG_EXTENDED_TIMEOUT_SECONDS "\$@"
+EOF
+
+		/bin/chmod +x "$TARGET_UTILITY_PATHFILE"
+		ShowAsDone "default QPKG timeouts have been increased to $((QPKG_EXTENDED_TIMEOUT_SECONDS/60)) minutes"
+	fi
+
+	qpkg_timeouts_increased=true
+	return 0
+
+	}
+
+QPKGs.Timeouts:Decrease()
+	{
+
+	if [[ ! -e $BACKUP_UTILITY_PATHFILE ]]; then
+		ShowAsInfo 'default QPKG timeouts are in-effect'
+	else
+		mv -f "$BACKUP_UTILITY_PATHFILE" "$TARGET_UTILITY_PATHFILE"
+		ShowAsDone 'default QPKG timeouts have been reverted to 3 minutes'
+	fi
+
+	qpkg_timeouts_increased=false
+	return 0
+
+	}
 
 SendToStart()
     {
@@ -123,25 +175,27 @@ Init
 
 case $1 in
     start)
-		:
+		QPKGs.Timeouts:Increase
+		SendToStart "$QPKG_NAME"
         ;;
     stop)
-        :
+		QPKGs.Timeouts:Decrease
         ;;
 	restart)
-		:
+		QPKGs.Timeouts:Decrease
+		QPKGs.Timeouts:Increase
 		;;
 	status)
-        if /bin/grep -q 'sortmyqpkgs.sh' $SHUTDOWN_PATHFILE; then
-			echo 'active'
+		if [[ -e $BACKUP_UTILITY_PATHFILE ]]; then
+			echo 'default QPKG timeouts have been increased'
 			exit 0
 		else
-			echo 'inactive'
+			echo 'default QPKG timeouts are in-effect'
 			exit 1
 		fi
 		;;
     *)
-        echo -e "\n Usage: $0 {status}\n"
+        echo -e "\n Usage: $0 {start|stop|restart|status}\n"
 esac
 
 SetServiceOperationResultOK
