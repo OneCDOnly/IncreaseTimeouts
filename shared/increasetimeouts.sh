@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 ############################################################################
-# increasetimeouts.sh - (C)opyright 2023 OneCD - one.cd.only@gmail.com
+# increasetimeouts.sh
+#	copyright 2023-2024 OneCD
+#
+# Contact:
+#	one.cd.only@gmail.com
 #
 # This script is part of the 'IncreaseTimeouts' package
-#
-# For more info: https://forum.qnap.com/viewtopic.php?
 #
 # Project source: https://github.com/OneCDOnly/IncreaseTimeouts
 #
@@ -22,32 +24,67 @@
 # this program. If not, see http://www.gnu.org/licenses/.
 ############################################################################
 
+set -o nounset -o pipefail
+shopt -s extglob
+ln -fns /proc/self/fd /dev/fd		# KLUDGE: `/dev/fd` isn't always created by QTS.
+
 readonly USER_ARGS_RAW=$*
 
 Init()
     {
 
     readonly QPKG_NAME=IncreaseTimeouts
-	readonly SCRIPT_VERSION=230718
-	readonly TARGET_UTILITY_PATHFILE=/usr/local/sbin/qpkg_service
-	readonly BACKUP_UTILITY_PATHFILE=/usr/local/sbin/qpkg_service.orig
-	readonly NAS_FIRMWARE_VER=$(GetFirmwareVer)
-	readonly QPKG_EXTENDED_TIMEOUT_SECONDS=1800		# 30 minutes
-	readonly CHARS_REGULAR_PROMPT='$ '
-	readonly CHARS_SUPER_PROMPT='# '
-	readonly CHARS_SUDO_PROMPT="${CHARS_REGULAR_PROMPT}sudo "
 
+    # KLUDGE: mark QPKG installation as complete.
     /sbin/setcfg "$QPKG_NAME" Status complete -f /etc/config/qpkg.conf
 
-    # KLUDGE: 'clean' the QTS 4.5.1 App Center notifier status
-    [[ -e /sbin/qpkg_cli ]] && /sbin/qpkg_cli --clean "$QPKG_NAME" &>/dev/null
+    # KLUDGE: 'clean' the QTS 4.5.1+ App Center notifier status.
+    [[ -e /sbin/qpkg_cli ]] && /sbin/qpkg_cli --clean "$QPKG_NAME" > /dev/null 2>&1
 
-    readonly QPKG_PATH=$(/sbin/getcfg $QPKG_NAME Install_Path -f /etc/config/qpkg.conf)
-    readonly SERVICE_STATUS_PATHFILE=/var/run/$QPKG_NAME.last.operation
+	readonly BACKUP_UTILITY_PATHFILE=/usr/local/sbin/qpkg_service.orig
+	readonly CHARS_REGULAR_PROMPT='$ '
+		readonly CHARS_SUDO_PROMPT="${CHARS_REGULAR_PROMPT}sudo "
+	readonly CHARS_SUPER_PROMPT='# '
+	readonly NAS_FIRMWARE_VER=$(GetFirmwareVer)
+	readonly QPKG_EXTENDED_TIMEOUT_SECONDS=1800		# 30 minutes
+    readonly QPKG_VERSION=$(/sbin/getcfg $QPKG_NAME Version -f /etc/config/qpkg.conf)
+	readonly SERVICE_ACTION_PATHFILE=/var/log/$QPKG_NAME.action
+	readonly SERVICE_RESULT_PATHFILE=/var/log/$QPKG_NAME.result
+	readonly TARGET_UTILITY_PATHFILE=/usr/local/sbin/qpkg_service
 
     }
 
-QPKGs.Timeouts:Increase()
+StartQPKG()
+	{
+
+	IsSU ||	exit 1
+	IncreaseTimeouts
+	SendToStart "$QPKG_NAME"
+
+	}
+
+StopQPKG()
+	{
+
+	IsSU ||	exit 1
+	DecreaseTimeouts
+
+	}
+
+StatusQPKG()
+	{
+
+	if IsTimeoutsIncreased; then
+		ShowAsInfo 'QPKG timeouts have been increased'
+		exit 0
+	else
+		ShowAsInfo 'default QPKG timeouts are in-effect'
+		exit 1
+	fi
+
+	}
+
+IncreaseTimeouts()
 	{
 
 	# boot-persistent:
@@ -60,7 +97,7 @@ QPKGs.Timeouts:Increase()
 	# not boot-persistent (but timeout specifier is unsupported anyway):
 	#	QTS 4.2.6.0468 20221028 (TS-559 Pro+)
 
-	if ! OS.IsSupportQpkgTimeout; then
+	if ! OsIsSupportQpkgTimeout; then
 		ShowAsAbort "QPKG timeouts are unsupported in this $(GetQnapOS) version"
 		return 1
 	fi
@@ -91,7 +128,7 @@ EOF
 
 	}
 
-QPKGs.Timeouts:Decrease()
+DecreaseTimeouts()
 	{
 
 	if [[ ! -e $BACKUP_UTILITY_PATHFILE ]]; then
@@ -102,6 +139,36 @@ QPKGs.Timeouts:Decrease()
 	fi
 
 	return 0
+
+	}
+
+ShowTitle()
+    {
+
+    echo "$(ShowAsTitleName) $(ShowAsVersion)"
+
+	echo -e "\nIncrease the timeouts for the $(GetQnapOS) 'qpkg_service' utility from 3 minutes (default) to $((QPKG_EXTENDED_TIMEOUT_SECONDS/60)) minutes."
+
+    }
+
+ShowAsTitleName()
+	{
+
+	TextBrightWhite $QPKG_NAME
+
+	}
+
+ShowAsVersion()
+	{
+
+	printf '%s' "v$QPKG_VERSION"
+
+	}
+
+ShowAsUsage()
+    {
+
+    echo -e "\nUsage: $0 {start|stop|restart|status}"
 
 	}
 
@@ -181,7 +248,7 @@ ShowAsInfo()
 
 	# note to user
 
-	echo "$(ColourTextBrightYellow note):" "${1:-}"
+	echo "$(TextBrightYellow note):" "${1:-}"
 
 	} >&2
 
@@ -190,7 +257,7 @@ ShowAsDone()
 
 	# process completed OK
 
-	echo "$(ColourTextBrightGreen 'done'):" "${1:-}"
+	echo "$(TextBrightGreen 'done'):" "${1:-}"
 
 	} >&2
 
@@ -199,7 +266,7 @@ ShowAsAbort()
 
 	# fatal abort
 
-	echo "$(ColourTextBrightRed bort):" "${1:-}"
+	echo "$(TextBrightRed bort):" "${1:-}"
 
 	} >&2
 
@@ -208,32 +275,58 @@ ShowAsError()
 
 	# fatal error
 
-	echo "$(ColourTextBrightRed derp):" "$(Capitalise "${1:-}")"
+	echo "$(TextBrightRed derp):" "$(Capitalise "${1:-}")"
 
 	} >&2
 
-SetServiceOperationResultOK()
-    {
+SetServiceAction()
+	{
 
-    SetServiceOperationResult ok
+	service_action=${1:-none}
+	CommitServiceAction
+	SetServiceResultAsInProgress
 
-    }
+	}
 
-SetServiceOperationResultFailed()
-    {
+SetServiceResultAsOK()
+	{
 
-    SetServiceOperationResult failed
+	service_result=ok
+	CommitServiceResult
 
-    }
+	}
 
-SetServiceOperationResult()
-    {
+SetServiceResultAsFailed()
+	{
 
-    # $1 = result of operation to recorded
+	service_result=failed
+	CommitServiceResult
 
-    [[ -n $1 && -n $SERVICE_STATUS_PATHFILE ]] && echo "$1" > "$SERVICE_STATUS_PATHFILE"
+	}
 
-    }
+SetServiceResultAsInProgress()
+	{
+
+	# Selected action is in-progress and hasn't generated a result yet.
+
+	service_result=in-progress
+	CommitServiceResult
+
+	}
+
+CommitServiceAction()
+	{
+
+    echo "$service_action" > "$SERVICE_ACTION_PATHFILE"
+
+	}
+
+CommitServiceResult()
+	{
+
+    echo "$service_result" > "$SERVICE_RESULT_PATHFILE"
+
+	}
 
 IsSU()
 	{
@@ -256,14 +349,14 @@ IsSU()
 
 	}
 
-OS.IsSupportQpkgTimeout()
+OsIsSupportQpkgTimeout()
 	{
 
 	[[ ${NAS_FIRMWARE_VER//.} -ge 430 ]]
 
 	}
 
-QPKGs.IsTimeoutsIncreased()
+IsTimeoutsIncreased()
 	{
 
 	[[ -e $BACKUP_UTILITY_PATHFILE ]]
@@ -274,9 +367,9 @@ GetQnapOS()
 	{
 
 	if /bin/grep -q zfs /proc/filesystems; then
-		echo 'QuTS hero'
+		printf 'QuTS hero'
 	else
-		echo QTS
+		printf QTS
 	fi
 
 	}
@@ -288,76 +381,72 @@ GetFirmwareVer()
 
 	}
 
-FormatAsPackageName()
-	{
-
-	echo "'${1:-}'"
-
-	}
-
-ColourTextBrightGreen()
+TextBrightGreen()
 	{
 
     printf '\033[1;32m%s\033[0m' "${1:-}"
 
 	} 2>/dev/null
 
-ColourTextBrightYellow()
+TextBrightYellow()
 	{
 
     printf '\033[1;33m%s\033[0m' "${1:-}"
 
 	} 2>/dev/null
 
-ColourTextBrightRed()
+TextBrightRed()
 	{
 
     printf '\033[1;31m%s\033[0m' "${1:-}"
 
 	} 2>/dev/null
 
-ColourTextBrightWhite()
+TextBrightWhite()
 	{
 
     printf '\033[1;97m%s\033[0m' "${1:-}"
 
-	} 2>/dev/null
+	}
 
 Init
 
-case $1 in
-    start)
-        IsSU ||	exit 1
-		QPKGs.Timeouts:Increase
-		SendToStart "$QPKG_NAME"
-        SetServiceOperationResultOK
+user_arg=${USER_ARGS_RAW%% *}		# Only process first argument.
+
+case $user_arg in
+    ?(-)r|?(--)restart)
+        SetServiceAction restart
+
+        if StopQPKG && StartQPKG; then
+            SetServiceResultAsOK
+        else
+            SetServiceResultAsFailed
+        fi
         ;;
-    stop)
-        IsSU ||	exit 1
-		QPKGs.Timeouts:Decrease
-        SetServiceOperationResultOK
+    ?(--)start)
+        SetServiceAction start
+
+        if StartQPKG; then
+            SetServiceResultAsOK
+        else
+            SetServiceResultAsFailed
+        fi
         ;;
-	restart)
-        IsSU ||	exit 1
-		QPKGs.Timeouts:Decrease &>/dev/null
-		QPKGs.Timeouts:Increase
-        SetServiceOperationResultOK
-		;;
-	s|status)
-		if QPKGs.IsTimeoutsIncreased; then
-			ShowAsInfo 'QPKG timeouts have been increased'
-			exit 0
-		else
-			ShowAsInfo 'default QPKG timeouts are in-effect'
-			exit 1
-		fi
-		;;
+    ?(-)s|?(--)status)
+        StatusQPKG
+        ;;
+    ?(--)stop)
+        SetServiceAction stop
+
+        if StopQPKG; then
+            SetServiceResultAsOK
+        else
+            SetServiceResultAsFailed
+        fi
+        ;;
     *)
-        echo "$(ColourTextBrightWhite "$(/usr/bin/basename "$0")") $SCRIPT_VERSION • a service control script for the $(FormatAsPackageName $QPKG_NAME) QPKG"
-
-        echo -e "\nIncrease the timeouts for the $(GetQnapOS) 'qpkg_service' utility from 3 minutes (default) to $((QPKG_EXTENDED_TIMEOUT_SECONDS/60)) minutes."
-
-        echo -e "\nUsage: $0 {start|stop|restart|status}\n"
+        ShowTitle
+        ShowAsUsage
 esac
 
 exit 0
