@@ -93,15 +93,21 @@ StatusQPKG()
 IncreaseTimeouts()
 	{
 
-	# boot-persistent:
-	#	QTS 4.3.3.1624 20221124 (TS-220) as /usr is symlink to /mnt/ext/usr
+	# Notes:
 
-	# not boot-persistent:
+	# utility is not boot-persistent (but timeout specifier is unsupported anyway):
+	#	QTS 4.2.6.0468 20221028 (TS-559 Pro+)
+
+	# utility is boot-persistent as /usr is symlink to /mnt/ext/usr:
+	#	QTS 4.3.3.1624 20221124 (TS-220)
+
+	# utility is not boot-persistent:
 	#	QTS 5.1.0.2444 20230629 (TS-230)
 	#	QTS 5.1.0.2444 20230629 (TS-231P2)
+	#	QTS 5.2.5.3145 20250526 (TS-251+)
 
-	# not boot-persistent (but timeout specifier is unsupported anyway):
-	#	QTS 4.2.6.0468 20221028 (TS-559 Pro+)
+	# utility timeout is larger than 11 minutes (actual is unknown):
+	#	QTS 5.2.5.3145 20250526 (TS-251+)
 
 	if ! IsOsSupportQpkgTimeout; then
 		ShowAsAbort "QPKG timeouts are unsupported in this $(GetQnapOS) version"
