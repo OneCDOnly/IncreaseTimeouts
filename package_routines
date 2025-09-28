@@ -110,6 +110,7 @@ pkg_post_install()
 
 	readonly r_service_action_pathfile=/var/log/$QPKG_NAME.action
 	readonly r_service_result_pathfile=/var/log/$QPKG_NAME.result
+	local service_action=''
 	local service_result=ok
 
 	if [[ ${REINSTALL_QPKG:=false} = true ]]; then
@@ -128,6 +129,6 @@ pkg_post_install()
 # Define any package specific operations that shall be performed when
 # the package is removed.
 ######################################################################
-PKG_POST_REMOVE="{
-    true
-}"
+#PKG_POST_REMOVE="{
+#    true
+#}"
