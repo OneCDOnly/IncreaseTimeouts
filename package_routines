@@ -92,7 +92,7 @@
 #SYS_WEB_SHARE=""
 #SYS_WEB_PATH=""
 ## Path to ipkg or opkg package tool if installed.
-#CMD_PKG_TOOL=
+#CMD_PKG_TOOL=""
 #
 ######################################################################
 # All package specific functions shall call 'err_log MSG' if an error
@@ -110,7 +110,6 @@ pkg_post_install()
 
 	readonly r_service_action_pathfile=/var/log/$QPKG_NAME.action
 	readonly r_service_result_pathfile=/var/log/$QPKG_NAME.result
-	local service_action=''
 	local service_result=ok
 
 	if [[ ${REINSTALL_QPKG:=false} = true ]]; then
@@ -125,10 +124,3 @@ pkg_post_install()
 	echo "$service_result" > "$r_service_result_pathfile"
 
 	}
-######################################################################
-# Define any package specific operations that shall be performed when
-# the package is removed.
-######################################################################
-#PKG_POST_REMOVE="{
-#    true
-#}"
